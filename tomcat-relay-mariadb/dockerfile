@@ -1,0 +1,48 @@
+############################
+# 1) 베이스 & 빌드 인자
+############################
+ARG UBUNTU_VERSION=22.04
+FROM ubuntu:${UBUNTU_VERSION}
+
+ARG JAVA_PACKAGE=openjdk-17-jdk
+ARG TOMCAT_MAJOR=9
+ARG TOMCAT_VERSION=9.0.105
+
+############################
+# 2) 런타임 환경변수 (.env)
+############################
+ENV TZ=Asia/Seoul \
+    ROOT_PASSWORD=changeMe \
+    KEYSTORE_ALIAS=tomcat \
+    KEYSTORE_PASSWORD=changeit \
+    KEYSTORE_DNAME="CN=localhost, OU=Dev, O=MyCompany, L=Seoul, ST=Seoul, C=KR" \
+    CATALINA_HOME=/opt/tomcat \
+    PATH=/opt/tomcat/bin:$PATH
+
+############################
+# 3) 패키지 설치 & 기본셋업
+############################
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      ${JAVA_PACKAGE} wget curl unzip openssh-server vim tzdata && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ >/etc/timezone && \
+    rm -rf /var/lib/apt/lists/*
+
+# SSH 설정
+RUN mkdir /var/run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+# Tomcat 설치
+RUN wget -q https://dlcdn.apache.org/tomcat/tomcat-${TOMCAT_MAJOR}/v${TOMCAT_VERSION}/bin/apache-tomcat-${TOMCAT_VERSION}.tar.gz && \
+    tar -xzf apache-tomcat-${TOMCAT_VERSION}.tar.gz && \
+    mv apache-tomcat-${TOMCAT_VERSION} ${CATALINA_HOME} && \
+    rm apache-tomcat-${TOMCAT_VERSION}.tar.gz
+
+############################
+# 4) 엔트리포인트
+############################
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+EXPOSE 8080 8443 22
+CMD ["/usr/local/bin/entrypoint.sh"]

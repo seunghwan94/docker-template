@@ -1,0 +1,95 @@
+version: "3.8"
+
+services:
+  # ─── 1) 메인 Tomcat ───
+  tomcat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UBUNTU_VERSION:  ${UBUNTU_VERSION}
+        JAVA_PACKAGE:    ${JAVA_PACKAGE}
+        TOMCAT_MAJOR:    ${TOMCAT_MAJOR}
+        TOMCAT_VERSION:  ${TOMCAT_VERSION}
+    container_name: ${PROJECT}_tomcat
+    restart: unless-stopped
+
+    ports:
+      - "${TOMCAT_HTTP_PORT}:8080"
+      - "${TOMCAT_HTTPS_PORT}:8443"
+      - "${TOMCAT_SSH_PORT}:22"
+      - "${TOMCAT_ETC_PORT}:5080"
+
+    environment:
+      TZ:                ${TZ}
+      ROOT_PASSWORD:     ${ROOT_PASSWORD}
+      KEYSTORE_ALIAS:    ${KEYSTORE_ALIAS}
+      KEYSTORE_PASSWORD: ${KEYSTORE_PASSWORD}
+      KEYSTORE_DNAME:    ${KEYSTORE_DNAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_NAME: ${DB_NAME}
+
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  # ─── 2) Nginx ───
+  nginx:
+    image: nginx:${NGINX_VERSION}
+    container_name: ${PROJECT}_nginx
+    restart: unless-stopped
+
+    ports:
+      - "${NGINX_HTTP_PORT}:80"
+      - "${NGINX_HTTPS_PORT}:443"
+
+    depends_on:
+      tomcat:
+        condition: service_started
+
+    environment:
+      WIZERA_HOST:     ${WIZERA_HOST}
+      UPSTREAM_TOMCAT: ${UPSTREAM_TOMCAT}
+      UPSTREAM_RELAY:  ${UPSTREAM_RELAY}
+
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/certs:/etc/nginx/certs:ro   # 실서버 인증서 위치(옵션)
+
+    entrypoint: >
+      /bin/sh -c "
+        envsubst '\$${WIZERA_HOST} \$${UPSTREAM_TOMCAT} \$${UPSTREAM_RELAY}'
+          < /etc/nginx/templates/proxy.template
+          > /etc/nginx/conf.d/proxy.conf &&
+        exec nginx -g 'daemon off;'
+      "
+
+  # ─── 3) MariaDB ───
+  mariadb:
+    image: mariadb:${MARIADB_VERSION}
+    container_name: ${PROJECT}_db
+    restart: unless-stopped
+
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE:      ${DB_NAME}
+      MARIADB_USER:          ${DB_USER}
+      MARIADB_PASSWORD:      ${DB_PASS}
+
+    ports:
+      - "${DB_PORT}:3306"
+
+    volumes:
+      - db_data:/var/lib/mysql
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:
